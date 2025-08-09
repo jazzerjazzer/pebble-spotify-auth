@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Pebble Spotify Configuration</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 400px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 15px;
+      padding: 30px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    h1 {
+      color: #1DB954;
+      text-align: center;
+      font-size: 28px;
+      margin-bottom: 10px;
+    }
+    .subtitle {
+      text-align: center;
+      color: #666;
+      margin-bottom: 30px;
+    }
+    .status {
+      padding: 15px;
+      border-radius: 8px;
+      margin: 20px 0;
+      text-align: center;
+      animation: slideIn 0.3s ease;
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .status.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .status.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    .status.info {
+      background: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #bee5eb;
+    }
+    button {
+      width: 100%;
+      padding: 15px;
+      font-size: 16px;
+      border: none;
+      border-radius: 50px;
+      cursor: pointer;
+      margin: 10px 0;
+      font-weight: bold;
+      transition: all 0.3s ease;
+    }
+    .spotify-button {
+      background: #1DB954;
+      color: white;
+      box-shadow: 0 4px 15px rgba(29, 185, 84, 0.3);
+    }
+    .spotify-button:hover {
+      background: #1ed760;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(29, 185, 84, 0.4);
+    }
+    .save-button {
+      background: #333;
+      color: white;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    }
+    .save-button:hover {
+      background: #555;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+    }
+    .save-button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    .token-info {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 20px 0;
+      border: 1px solid #dee2e6;
+    }
+    .token-display {
+      font-family: monospace;
+      font-size: 12px;
+      word-break: break-all;
+      color: #495057;
+      margin-top: 10px;
+      padding: 10px;
+      background: white;
+      border-radius: 4px;
+    }
+    .loading {
+      text-align: center;
+      padding: 20px;
+    }
+    .spinner {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #1DB954;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .instructions {
+      background: #fff3cd;
+      padding: 15px;
+      border-radius: 8px;
+      border: 1px solid #ffeeba;
+      color: #856404;
+      margin: 20px 0;
+    }
+    .instructions ol {
+      margin: 10px 0;
+      padding-left: 20px;
+    }
+    .instructions li {
+      margin: 5px 0;
+    }
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎵 Pebble Spotify</h1>
+    <div class="subtitle">Configure your Spotify connection</div>
+    
+    <div id="loading-section" class="hidden">
+      <div class="loading">
+        <div class="spinner"></div>
+        <p>Processing authentication...</p>
+      </div>
+    </div>
+    
+    <div id="status-message"></div>
+    
+    <div id="login-section">
+      <div class="instructions">
+        <strong>Quick Setup:</strong>
+        <ol>
+          <li>Click the green button below</li>
+          <li>Log in to Spotify</li>
+          <li>Authorize the app</li>
+          <li>You'll be redirected back here automatically</li>
+        </ol>
+      </div>
+      
+      <button class="spotify-button" onclick="loginWithSpotify()">
+        Connect with Spotify
+      </button>
+    </div>
+    
+    <div id="success-section" class="hidden">
+      <div class="status success">
+        ✓ Successfully connected to Spotify!
+      </div>
+      <div class="token-info">
+        <strong>Access Token:</strong>
+        <div class="token-display" id="token-display"></div>
+      </div>
+      <button class="save-button" onclick="saveAndReturn()">
+        Save & Return to Pebble
+      </button>
+      <button class="spotify-button" onclick="loginWithSpotify()">
+        Get New Token
+      </button>
+    </div>
+  </div>
+
+  <script>
+    // Configuration
+    const CLIENT_ID = 'aa44bda5538749e698a26ed6452082c3';
+    const SCOPES = 'playlist-read-private playlist-read-collaborative user-read-playback-state user-modify-playback-state user-read-currently-playing';
+    
+    // Get the redirect URI based on current location
+    function getRedirectUri() {
+      // Use the current page URL as redirect URI
+      return window.location.origin + window.location.pathname;
+    }
+    
+    // Store token globally
+    let accessToken = null;
+    let returnTo = null;
+    
+    // Check URL parameters on load
+    function init() {
+      // Get return URL from query params (from Pebble)
+      const urlParams = new URLSearchParams(window.location.search);
+      returnTo = urlParams.get('return_to');
+      
+      // Check for existing config
+      const configStr = urlParams.get('config');
+      if (configStr) {
+        try {
+          const config = JSON.parse(decodeURIComponent(configStr));
+          if (config.access_token) {
+            showExistingToken(config.access_token);
+          }
+        } catch(e) {
+          console.error('Error parsing config:', e);
+        }
+      }
+      
+      // Check for token in URL hash (from Spotify OAuth redirect)
+      const hash = window.location.hash.substring(1);
+      if (hash) {
+        const params = new URLSearchParams(hash);
+        const token = params.get('access_token');
+        const error = params.get('error');
+        
+        if (token) {
+          handleSuccessfulAuth(token);
+        } else if (error) {
+          showError('Authorization failed: ' + error);
+        }
+        
+        // Clear hash from URL
+        window.history.replaceState(null, null, window.location.pathname + window.location.search);
+      }
+    }
+    
+    function loginWithSpotify() {
+      const redirectUri = getRedirectUri();
+      const authUrl = 'https://accounts.spotify.com/authorize?' +
+        'response_type=token&' +
+        'client_id=' + encodeURIComponent(CLIENT_ID) + '&' +
+        'scope=' + encodeURIComponent(SCOPES) + '&' +
+        'redirect_uri=' + encodeURIComponent(redirectUri) + '&' +
+        'show_dialog=true';
+      
+      console.log('Redirecting to Spotify auth...');
+      console.log('Redirect URI:', redirectUri);
+      
+      // Redirect to Spotify
+      window.location.href = authUrl;
+    }
+    
+    function handleSuccessfulAuth(token) {
+      accessToken = token;
+      document.getElementById('loading-section').classList.add('hidden');
+      document.getElementById('login-section').classList.add('hidden');
+      document.getElementById('success-section').classList.remove('hidden');
+      document.getElementById('token-display').textContent = token.substring(0, 50) + '...';
+      
+      // Auto-save if we're in Pebble context
+      if (returnTo) {
+        setTimeout(saveAndReturn, 1500); // Auto-save after 1.5 seconds
+      }
+    }
+    
+    function showExistingToken(token) {
+      accessToken = token;
+      document.getElementById('status-message').innerHTML = 
+        '<div class="status info">ℹ️ You already have a token. Get a new one if the current one expired.</div>';
+    }
+    
+    function showError(message) {
+      document.getElementById('status-message').innerHTML = 
+        '<div class="status error">❌ ' + message + '</div>';
+      document.getElementById('loading-section').classList.add('hidden');
+    }
+    
+    function saveAndReturn() {
+      if (!accessToken) {
+        showError('No access token available');
+        return;
+      }
+      
+      const config = {
+        access_token: accessToken,
+        configured_at: new Date().toISOString()
+      };
+      
+      if (returnTo) {
+        // Return to Pebble app
+        document.getElementById('status-message').innerHTML = 
+          '<div class="status success">✓ Returning to Pebble...</div>';
+        
+        setTimeout(() => {
+          window.location.href = returnTo + encodeURIComponent(JSON.stringify(config));
+        }, 500);
+      } else {
+        // Just testing in browser
+        document.getElementById('status-message').innerHTML = 
+          '<div class="status success">✓ Configuration saved! You can close this window.</div>';
+        console.log('Configuration:', config);
+      }
+    }
+    
+    // Initialize on load
+    init();
+  </script>
+</body>
+</html>
