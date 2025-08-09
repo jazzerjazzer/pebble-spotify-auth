@@ -166,10 +166,10 @@
       <div class="instructions">
         <strong>Quick Setup:</strong>
         <ol>
-          <li>1. Click the green button below</li>
-          <li>2. Log in to Spotify</li>
-          <li>3. Authorize the app</li>
-          <li>4. You'll be redirected back here automatically</li>
+          <li>Click the green button below</li>
+          <li>Log in to Spotify</li>
+          <li>Authorize the app</li>
+          <li>You'll be redirected back here automatically</li>
         </ol>
       </div>
       
@@ -215,6 +215,31 @@
       return origin + pathname;
     }
     
+    // PKCE helper functions
+    function generateRandomString(length) {
+      const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      const values = crypto.getRandomValues(new Uint8Array(length));
+      return values.reduce((acc, x) => acc + possible[x % possible.length], "");
+    }
+
+    async function sha256(plain) {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(plain);
+      return window.crypto.subtle.digest('SHA-256', data);
+    }
+
+    function base64urlencode(a) {
+      return btoa(String.fromCharCode.apply(null, new Uint8Array(a)))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+    }
+
+    async function generateCodeChallenge(codeVerifier) {
+      const hashed = await sha256(codeVerifier);
+      return base64urlencode(hashed);
+    }
+    
     // Store token globally
     let accessToken = null;
     let returnTo = null;
@@ -244,61 +269,106 @@
         }
       }
       
-      // Check for token in URL hash (from Spotify OAuth redirect)
-      const hash = window.location.hash.substring(1);
-      if (hash) {
-        console.log('Hash found:', hash);
-        
-        // Check if it's an error response
-        if (hash.includes('error=')) {
-          // Parse error from hash
-          const errorMatch = hash.match(/error=([^&]*)/);
-          const descMatch = hash.match(/error_description=([^&]*)/);
-          
-          const error = errorMatch ? errorMatch[1] : 'unknown_error';
-          const errorDescription = descMatch ? decodeURIComponent(descMatch[1].replace(/\+/g, ' ')) : '';
-          
-          console.log('OAuth Error:', error);
-          console.log('Error Description:', errorDescription);
-          
-          const errorMsg = errorDescription ? 
-            'Authorization failed: ' + error + ' - ' + errorDescription :
-            'Authorization failed: ' + error;
-          showError(errorMsg);
-        } else if (hash.includes('access_token=')) {
-          // Parse token from hash
-          const tokenMatch = hash.match(/access_token=([^&]*)/);
-          if (tokenMatch) {
-            const token = tokenMatch[1];
-            console.log('Token found in hash');
-            handleSuccessfulAuth(token);
-          }
-        }
-        
-        // Clear hash from URL
-        window.history.replaceState(null, null, window.location.pathname + window.location.search);
+      // Check for authorization code in URL params (from Spotify OAuth redirect)
+      const code = urlParams.get('code');
+      const error = urlParams.get('error');
+      
+      if (code) {
+        console.log('Authorization code found:', code);
+        // Exchange code for token
+        exchangeCodeForToken(code);
+      } else if (error) {
+        const errorDescription = urlParams.get('error_description');
+        console.log('OAuth Error:', error, errorDescription);
+        const errorMsg = errorDescription ? 
+          'Authorization failed: ' + error + ' - ' + decodeURIComponent(errorDescription) :
+          'Authorization failed: ' + error;
+        showError(errorMsg);
       }
     }
     
-    function loginWithSpotify() {
+    async function exchangeCodeForToken(code) {
+      console.log('Exchanging code for token...');
+      document.getElementById('status-message').innerHTML = 
+        '<div class="status info">Completing authentication...</div>';
+      
+      const codeVerifier = localStorage.getItem('pkce_code_verifier');
+      if (!codeVerifier) {
+        showError('Missing code verifier. Please try logging in again.');
+        return;
+      }
+      
+      const redirectUri = getRedirectUri();
+      
+      // Prepare token request
+      const params = new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: redirectUri,
+        client_id: CLIENT_ID,
+        code_verifier: codeVerifier
+      });
+      
+      try {
+        const response = await fetch('https://accounts.spotify.com/api/token', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: params.toString()
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.access_token) {
+          console.log('Token exchange successful!');
+          localStorage.removeItem('pkce_code_verifier');
+          
+          // Clear code from URL
+          const url = new URL(window.location);
+          url.searchParams.delete('code');
+          window.history.replaceState(null, null, url.toString());
+          
+          handleSuccessfulAuth(data.access_token);
+        } else {
+          console.error('Token exchange failed:', data);
+          showError('Failed to get access token: ' + (data.error_description || data.error || 'Unknown error'));
+        }
+      } catch (e) {
+        console.error('Error exchanging code:', e);
+        showError('Failed to exchange authorization code: ' + e.message);
+      }
+    }
+    
+    async function loginWithSpotify() {
       try {
         const redirectUri = getRedirectUri();
         
         // Clear any existing error messages
         document.getElementById('status-message').innerHTML = '';
         
-        // Build auth URL manually to ensure proper formatting
+        // Generate PKCE values
+        const codeVerifier = generateRandomString(128);
+        const codeChallenge = await generateCodeChallenge(codeVerifier);
+        
+        // Store code verifier for later use
+        localStorage.setItem('pkce_code_verifier', codeVerifier);
+        
+        // Build auth URL with PKCE parameters
         const authUrl = 'https://accounts.spotify.com/authorize' +
-          '?response_type=token' +
+          '?response_type=code' +  // Changed from 'token' to 'code'
           '&client_id=' + CLIENT_ID +
-          '&scope=' + encodeURIComponent(SCOPES) +
           '&redirect_uri=' + encodeURIComponent(redirectUri) +
+          '&scope=' + encodeURIComponent(SCOPES) +
+          '&code_challenge_method=S256' +
+          '&code_challenge=' + codeChallenge +
           '&show_dialog=true';
         
-        console.log('===== SPOTIFY AUTH DEBUG =====');
+        console.log('===== SPOTIFY AUTH DEBUG (PKCE) =====');
         console.log('Client ID:', CLIENT_ID);
         console.log('Redirect URI:', redirectUri);
         console.log('Scopes:', SCOPES);
+        console.log('Code Challenge:', codeChallenge);
         console.log('Full auth URL:', authUrl);
         console.log('About to redirect in 500ms...');
         
