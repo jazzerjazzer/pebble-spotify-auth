@@ -197,13 +197,22 @@
 
   <script>
     // Configuration
-    const CLIENT_ID = 'aa7ff84d857449deae48892a3bee2bf2';
-    const SCOPES = 'playlist-read-private playlist-read-collaborative user-read-playback-state user-modify-playback-state user-read-currently-playing';
+    const CLIENT_ID = 'aa44bda5538749e698a26ed6452082c3';
+    const SCOPES = 'playlist-read-private playlist-read-collaborative user-read-playback-state user-modify-playback-state';
     
     // Get the redirect URI based on current location
     function getRedirectUri() {
       // Use the current page URL as redirect URI
-      return window.location.origin + window.location.pathname;
+      // Ensure proper format with double slashes after https:
+      const origin = window.location.origin;
+      const pathname = window.location.pathname;
+      
+      // Fix any malformed origin (shouldn't happen, but just in case)
+      if (origin.startsWith('https:/') && !origin.startsWith('https://')) {
+        return origin.replace('https:/', 'https://') + pathname;
+      }
+      
+      return origin + pathname;
     }
     
     // Store token globally
@@ -249,15 +258,21 @@
     
     function loginWithSpotify() {
       const redirectUri = getRedirectUri();
-      const authUrl = 'https://accounts.spotify.com/authorize?' +
-        'response_type=token&' +
-        'client_id=' + encodeURIComponent(CLIENT_ID) + '&' +
-        'scope=' + encodeURIComponent(SCOPES) + '&' +
-        'redirect_uri=' + encodeURIComponent(redirectUri) + '&' +
-        'show_dialog=true';
+      
+      // Build auth URL with proper parameters
+      const params = new URLSearchParams({
+        response_type: 'token',
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        redirect_uri: redirectUri,
+        show_dialog: 'true'
+      });
+      
+      const authUrl = 'https://accounts.spotify.com/authorize?' + params.toString();
       
       console.log('Redirecting to Spotify auth...');
       console.log('Redirect URI:', redirectUri);
+      console.log('Full auth URL:', authUrl);
       
       // Redirect to Spotify
       window.location.href = authUrl;
