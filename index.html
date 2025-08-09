@@ -221,6 +221,11 @@
     
     // Check URL parameters on load
     function init() {
+      console.log('===== PAGE INIT =====');
+      console.log('Current URL:', window.location.href);
+      console.log('Hash:', window.location.hash);
+      console.log('Search:', window.location.search);
+      
       // Get return URL from query params (from Pebble)
       const urlParams = new URLSearchParams(window.location.search);
       returnTo = urlParams.get('return_to');
@@ -231,6 +236,7 @@
         try {
           const config = JSON.parse(decodeURIComponent(configStr));
           if (config.access_token) {
+            console.log('Existing token found in config');
             showExistingToken(config.access_token);
           }
         } catch(e) {
@@ -241,14 +247,32 @@
       // Check for token in URL hash (from Spotify OAuth redirect)
       const hash = window.location.hash.substring(1);
       if (hash) {
-        const params = new URLSearchParams(hash);
-        const token = params.get('access_token');
-        const error = params.get('error');
+        console.log('Hash found:', hash);
         
-        if (token) {
-          handleSuccessfulAuth(token);
-        } else if (error) {
-          showError('Authorization failed: ' + error);
+        // Check if it's an error response
+        if (hash.includes('error=')) {
+          // Parse error from hash
+          const errorMatch = hash.match(/error=([^&]*)/);
+          const descMatch = hash.match(/error_description=([^&]*)/);
+          
+          const error = errorMatch ? errorMatch[1] : 'unknown_error';
+          const errorDescription = descMatch ? decodeURIComponent(descMatch[1].replace(/\+/g, ' ')) : '';
+          
+          console.log('OAuth Error:', error);
+          console.log('Error Description:', errorDescription);
+          
+          const errorMsg = errorDescription ? 
+            'Authorization failed: ' + error + ' - ' + errorDescription :
+            'Authorization failed: ' + error;
+          showError(errorMsg);
+        } else if (hash.includes('access_token=')) {
+          // Parse token from hash
+          const tokenMatch = hash.match(/access_token=([^&]*)/);
+          if (tokenMatch) {
+            const token = tokenMatch[1];
+            console.log('Token found in hash');
+            handleSuccessfulAuth(token);
+          }
         }
         
         // Clear hash from URL
@@ -257,25 +281,36 @@
     }
     
     function loginWithSpotify() {
-      const redirectUri = getRedirectUri();
-      
-      // Build auth URL with proper parameters
-      const params = new URLSearchParams({
-        response_type: 'token',
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        redirect_uri: redirectUri,
-        show_dialog: 'true'
-      });
-      
-      const authUrl = 'https://accounts.spotify.com/authorize?' + params.toString();
-      
-      console.log('Redirecting to Spotify auth...');
-      console.log('Redirect URI:', redirectUri);
-      console.log('Full auth URL:', authUrl);
-      
-      // Redirect to Spotify
-      window.location.href = authUrl;
+      try {
+        const redirectUri = getRedirectUri();
+        
+        // Clear any existing error messages
+        document.getElementById('status-message').innerHTML = '';
+        
+        // Build auth URL manually to ensure proper formatting
+        const authUrl = 'https://accounts.spotify.com/authorize' +
+          '?response_type=token' +
+          '&client_id=' + CLIENT_ID +
+          '&scope=' + encodeURIComponent(SCOPES) +
+          '&redirect_uri=' + encodeURIComponent(redirectUri) +
+          '&show_dialog=true';
+        
+        console.log('===== SPOTIFY AUTH DEBUG =====');
+        console.log('Client ID:', CLIENT_ID);
+        console.log('Redirect URI:', redirectUri);
+        console.log('Scopes:', SCOPES);
+        console.log('Full auth URL:', authUrl);
+        console.log('About to redirect in 500ms...');
+        
+        // Add a delay to ensure console logs are visible
+        setTimeout(() => {
+          console.log('Redirecting now...');
+          window.location.href = authUrl;
+        }, 500);
+      } catch(e) {
+        console.error('Error in loginWithSpotify:', e);
+        showError('Failed to start login: ' + e.message);
+      }
     }
     
     function handleSuccessfulAuth(token) {
